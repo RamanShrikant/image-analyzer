@@ -40,22 +40,21 @@ def analyze_freshness():
     file = request.files['image']
     img_bytes = file.read()
 
-    # --- 1️⃣ Food classification (TFLite) ---
+    # --- 1️⃣ Food classification (MobileNetV2) ---
     pil_img = Image.open(io.BytesIO(img_bytes)).resize((224, 224))
     x = np.array(pil_img, dtype=np.float32)
     x = np.expand_dims(x, axis=0)
-    x = (x / 127.5) - 1.0  # same preprocess as MobileNetV2
+    x = (x / 127.5) - 1.0
 
     interpreter.set_tensor(input_details[0]['index'], x)
     interpreter.invoke()
     preds = interpreter.get_tensor(output_details[0]['index'])[0]
     top_idx = np.argsort(preds)[::-1][:3]
 
-    # --- Labels file handling ---
     try:
-        labels = open("labels.txt").read().splitlines()
+        labels = open("label.txt").read().splitlines()
     except Exception as e:
-        print("❌ Error reading labels.txt:", e)
+        print("❌ Error reading label file:", e)
         return jsonify({"error": "labels file missing", "details": str(e)}), 500
 
     top_labels = [labels[i].lower() for i in top_idx]
@@ -74,17 +73,32 @@ def analyze_freshness():
     # --- 2️⃣ OpenCV freshness logic ---
     img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
     img = cv2.resize(img, (300, 300))
+
+    # 🔹 Normalize lighting
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    l_eq = cv2.equalizeHist(l)
+    img_eq = cv2.merge((l_eq, a, b))
+    img = cv2.cvtColor(img_eq, cv2.COLOR_LAB2BGR)
+
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     brightness = np.mean(hsv[:, :, 2])
     saturation = np.mean(hsv[:, :, 1])
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (7, 7), 0)
-    _, thresh = cv2.threshold(blurred, 50, 255, cv2.THRESH_BINARY_INV)
+
+    # 🔹 Adaptive threshold for spot detection
+    thresh = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2
+    )
     spots = cv2.countNonZero(thresh)
     spot_ratio = spots / (img.shape[0] * img.shape[1])
 
+    # 🔹 New weight ratios (spots matter more)
     freshness_score = int(
-        (0.6 * (brightness / 255) + 0.3 * (saturation / 255) + 0.1 * (1 - spot_ratio)) * 100
+        (0.3 * (brightness / 255) +
+         0.2 * (saturation / 255) +
+         0.5 * (1 - spot_ratio)) * 100
     )
 
     if freshness_score > 75:
@@ -102,6 +116,7 @@ def analyze_freshness():
         "brightness": round(brightness, 2),
         "saturation": round(saturation, 2)
     })
+
 
 
 if __name__ == "__main__":

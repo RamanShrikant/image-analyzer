@@ -1,9 +1,16 @@
+import tensorflow as tf
+from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input, decode_predictions
+from tensorflow.keras.preprocessing import image as tf_image
+import io
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import cv2
 import numpy as np
 
+
 app = Flask(__name__)
+# Load lightweight classifier once at startup
+model = MobileNetV2(weights="imagenet")
 CORS(app)  # enable CORS for all routes
 
 
@@ -19,30 +26,45 @@ def home():
 @app.route("/analyze-freshness", methods=["POST"])
 def analyze_freshness():
     file = request.files['image']
-    img = cv2.imdecode(np.frombuffer(file.read(), np.uint8), cv2.IMREAD_COLOR)
+    img_bytes = file.read()
 
-    # --- analyze image properties ---
-    # Resize for consistency
+    # --- 1️⃣ TensorFlow: detect if it's food ---
+    pil_img = tf_image.load_img(io.BytesIO(img_bytes), target_size=(224, 224))
+    x = tf_image.img_to_array(pil_img)
+    x = np.expand_dims(x, axis=0)
+    x = preprocess_input(x)
+
+    preds = model.predict(x)
+    decoded = decode_predictions(preds, top=3)[0]
+    labels = [item[1].lower() for item in decoded]
+
+    FOOD_KEYWORDS = [
+        "food", "fruit", "vegetable", "banana", "apple", "orange", "tomato",
+        "carrot", "grape", "salad", "pizza", "bread", "meat", "fish", "sandwich"
+    ]
+
+    if not any(word in lbl for lbl in labels for word in FOOD_KEYWORDS):
+        return jsonify({
+            "error": "Non-food image detected.",
+            "predictions": labels
+        }), 200
+
+    # --- 2️⃣ OpenCV freshness logic ---
+    img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
     img = cv2.resize(img, (300, 300))
-
-    # Convert to HSV (color model)
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     brightness = np.mean(hsv[:, :, 2])
     saturation = np.mean(hsv[:, :, 1])
-
-    # Convert to grayscale for spot detection
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (7, 7), 0)
     _, thresh = cv2.threshold(blurred, 50, 255, cv2.THRESH_BINARY_INV)
     spots = cv2.countNonZero(thresh)
     spot_ratio = spots / (img.shape[0] * img.shape[1])
 
-    # Calculate composite freshness score
     freshness_score = int(
         (0.6 * (brightness / 255) + 0.3 * (saturation / 255) + 0.1 * (1 - spot_ratio)) * 100
     )
 
-    # Determine freshness status
     if freshness_score > 75:
         status = "Fresh"
     elif freshness_score > 50:
@@ -51,12 +73,14 @@ def analyze_freshness():
         status = "Spoiled"
 
     return jsonify({
+        "labels": labels,
         "freshness_score": freshness_score,
         "status": status,
         "spots_detected": int(spots),
         "brightness": round(brightness, 2),
         "saturation": round(saturation, 2)
     })
+
 
 
 if __name__ == "__main__":

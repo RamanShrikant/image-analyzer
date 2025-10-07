@@ -1,5 +1,6 @@
 flask
-opencv-python-headless
-numpy
-gunicorn
 flask-cors
+numpy
+opencv-python-headless
+pillow
+tflite-runtime

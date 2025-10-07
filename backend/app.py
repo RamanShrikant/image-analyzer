@@ -1,17 +1,19 @@
-import tensorflow as tf
-from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input, decode_predictions
-from tensorflow.keras.preprocessing import image as tf_image
 import io
+import numpy as np
+import cv2
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import cv2
-import numpy as np
-
+import tflite_runtime.interpreter as tflite
+from PIL import Image
 
 app = Flask(__name__)
-# Load lightweight classifier once at startup
-model = MobileNetV2(weights="imagenet")
-CORS(app)  # enable CORS for all routes
+CORS(app)
+
+# --- Load the MobileNetV2 TFLite model ---
+interpreter = tflite.Interpreter(model_path="mobilenet_v2.tflite")
+interpreter.allocate_tensors()
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
 
 
 @app.route("/", methods=["GET"])
@@ -28,25 +30,30 @@ def analyze_freshness():
     file = request.files['image']
     img_bytes = file.read()
 
-    # --- 1️⃣ TensorFlow: detect if it's food ---
-    pil_img = tf_image.load_img(io.BytesIO(img_bytes), target_size=(224, 224))
-    x = tf_image.img_to_array(pil_img)
+    # --- 1️⃣ Food classification (TFLite) ---
+    pil_img = Image.open(io.BytesIO(img_bytes)).resize((224, 224))
+    x = np.array(pil_img, dtype=np.float32)
     x = np.expand_dims(x, axis=0)
-    x = preprocess_input(x)
+    x = (x / 127.5) - 1.0  # same preprocess as MobileNetV2
 
-    preds = model.predict(x)
-    decoded = decode_predictions(preds, top=3)[0]
-    labels = [item[1].lower() for item in decoded]
+    interpreter.set_tensor(input_details[0]['index'], x)
+    interpreter.invoke()
+    preds = interpreter.get_tensor(output_details[0]['index'])[0]
+    top_idx = np.argsort(preds)[::-1][:3]
+
+    # load ImageNet labels (download once locally)
+    labels = open("labels.txt").read().splitlines()
+    top_labels = [labels[i].lower() for i in top_idx]
 
     FOOD_KEYWORDS = [
         "food", "fruit", "vegetable", "banana", "apple", "orange", "tomato",
         "carrot", "grape", "salad", "pizza", "bread", "meat", "fish", "sandwich"
     ]
 
-    if not any(word in lbl for lbl in labels for word in FOOD_KEYWORDS):
+    if not any(word in lbl for lbl in top_labels for word in FOOD_KEYWORDS):
         return jsonify({
             "error": "Non-food image detected.",
-            "predictions": labels
+            "predictions": top_labels
         }), 200
 
     # --- 2️⃣ OpenCV freshness logic ---
@@ -73,14 +80,13 @@ def analyze_freshness():
         status = "Spoiled"
 
     return jsonify({
-        "labels": labels,
+        "labels": top_labels,
         "freshness_score": freshness_score,
         "status": status,
         "spots_detected": int(spots),
         "brightness": round(brightness, 2),
         "saturation": round(saturation, 2)
     })
-
 
 
 if __name__ == "__main__":

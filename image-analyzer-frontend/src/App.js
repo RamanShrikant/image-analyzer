@@ -9,11 +9,11 @@ function App() {
     if (!file) return alert("Please choose an image");
 
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("image", file);
 
     setLoading(true);
     try {
-      const response = await fetch("https://image-analyzer-kr0m.onrender.com/analyze", {  // ✅ updated to Render backend
+      const response = await fetch("https://image-analyzer-production-f217.up.railway.app/analyze-freshness", {
         method: "POST",
         body: formData,
       });

@@ -1,6 +1,5 @@
 import io
 import numpy as np
-import cv2
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import tflite_runtime.interpreter as tflite
@@ -9,122 +8,66 @@ import os
 
 app = Flask(__name__)
 
-# Debug info for Railway environment
-print("📁 Current working directory:", os.getcwd())
-print("📂 Files in directory:", os.listdir())
-
+# --- Enable CORS for your frontend ---
 CORS(app, resources={r"/*": {"origins": "https://image-analyzer-xi.vercel.app"}})
 
-# --- Load the MobileNetV2 TFLite model ---
+# --- Load your trained TFLite model ---
+MODEL_PATH = "freshness_model.tflite"
+
 try:
-    interpreter = tflite.Interpreter(model_path="mobilenet_v2.tflite")
+    interpreter = tflite.Interpreter(model_path=MODEL_PATH)
     interpreter.allocate_tensors()
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
-    print("✅ Model loaded successfully")
+    print(f"✅ Model '{MODEL_PATH}' loaded successfully")
 except Exception as e:
     print("❌ Error loading model:", e)
-
 
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
         "status": "success",
-        "message": "Image Analyzer backend is live 🚀",
+        "message": "AI Freshness Analyzer backend is live 🚀",
         "routes": ["/", "/analyze-freshness (POST)"]
     })
 
-
 @app.route("/analyze-freshness", methods=["POST"])
 def analyze_freshness():
-    file = request.files['image']
-    img_bytes = file.read()
-
-    # --- 1️⃣ Food classification (MobileNetV2) ---
-    pil_img = Image.open(io.BytesIO(img_bytes)).resize((224, 224))
-    x = np.array(pil_img, dtype=np.float32)
-    x = np.expand_dims(x, axis=0)
-    x = (x / 127.5) - 1.0
-
-    interpreter.set_tensor(input_details[0]['index'], x)
-    interpreter.invoke()
-    preds = interpreter.get_tensor(output_details[0]['index'])[0]
-    top_idx = np.argsort(preds)[::-1][:3]
-
     try:
-        labels = open("label.txt").read().splitlines()
-    except Exception as e:
-        print("❌ Error reading label file:", e)
-        return jsonify({"error": "labels file missing", "details": str(e)}), 500
+        # --- 1️⃣ Read uploaded image ---
+        file = request.files['image']
+        img_bytes = file.read()
 
-    top_labels = [labels[i].lower() for i in top_idx]
+        # --- 2️⃣ Preprocess for the model ---
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((224, 224))
+        x = np.array(img, dtype=np.float32) / 255.0
+        x = np.expand_dims(x, axis=0)
 
-    FOOD_KEYWORDS = [
-        "food", "fruit", "vegetable", "banana", "apple", "orange", "tomato",
-        "carrot", "grape", "salad", "pizza", "bread", "meat", "fish", "sandwich"
-    ]
+        # --- 3️⃣ Run inference ---
+        interpreter.set_tensor(input_details[0]['index'], x)
+        interpreter.invoke()
+        preds = interpreter.get_tensor(output_details[0]['index'])[0]
 
-    if not any(word in lbl for lbl in top_labels for word in FOOD_KEYWORDS):
+        # --- 4️⃣ Interpret predictions ---
+        classes = ["Fresh", "Slightly Aging", "Spoiled"]
+        predicted_index = int(np.argmax(preds))
+        confidence = float(preds[predicted_index])
+        status = classes[predicted_index]
+
+        # --- 5️⃣ Build response ---
         return jsonify({
-            "error": "Non-food image detected.",
-            "predictions": top_labels
-        }), 200
+            "status": status,
+            "confidence": round(confidence * 100, 2),
+            "predictions": {
+                "Fresh": round(float(preds[0]) * 100, 2),
+                "Slightly Aging": round(float(preds[1]) * 100, 2),
+                "Spoiled": round(float(preds[2]) * 100, 2)
+            }
+        })
 
-    # --- 2️⃣ OpenCV freshness logic ---
-    img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
-    img = cv2.resize(img, (300, 300))
-
-    # 🔹 Normalize lighting
-    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    l_eq = cv2.equalizeHist(l)
-    img_eq = cv2.merge((l_eq, a, b))
-    img = cv2.cvtColor(img_eq, cv2.COLOR_LAB2BGR)
-
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    brightness = np.mean(hsv[:, :, 2])
-    saturation = np.mean(hsv[:, :, 1])
-
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # 🔹 Adaptive threshold for dark spots
-    thresh = cv2.adaptiveThreshold(
-        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2
-    )
-    spots = cv2.countNonZero(thresh)
-    spot_ratio = spots / (img.shape[0] * img.shape[1])
-
-    # 🔹 Detect green-gray mold tones (typical spoilage)
-    mold_mask = cv2.inRange(hsv, (30, 0, 0), (90, 120, 210))
-    mold_pixels = cv2.countNonZero(mold_mask)
-    mold_ratio = mold_pixels / (img.shape[0] * img.shape[1])
-
-    # 🔹 Updated freshness formula (mold and spots matter most)
-    freshness_score = int(
-        (0.25 * (brightness / 255) +
-         0.15 * (saturation / 255) +
-         0.45 * (1 - spot_ratio) +
-         0.15 * (1 - mold_ratio)) * 100
-    )
-
-    # 🔹 Adjusted thresholds (40 = spoiled cutoff)
-    if freshness_score > 75:
-        status = "Fresh"
-    elif freshness_score > 40:
-        status = "Slightly Aging"
-    else:
-        status = "Spoiled"
-
-    return jsonify({
-        "labels": top_labels,
-        "freshness_score": freshness_score,
-        "status": status,
-        "spots_detected": int(spots),
-        "brightness": round(brightness, 2),
-        "saturation": round(saturation, 2),
-        "mold_pixels": int(mold_pixels)
-    })
-
+    except Exception as e:
+        print("❌ Error during inference:", e)
+        return jsonify({"error": "Failed to analyze image", "details": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)

@@ -3,5 +3,5 @@ flask-cors
 tflite-runtime
 pillow
 numpy
-opencv-python
+opencv-python-headless
 gunicorn

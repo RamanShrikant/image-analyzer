@@ -45,21 +45,20 @@ function App() {
         {loading ? "Analyzing..." : "Analyze"}
       </button>
 
-      {result && (
-        <div style={{ marginTop: "2rem" }}>
-          <h2>Freshness Score: {result.freshness}/100</h2>
-          <p>Spots Detected: {result.spots}</p>
-          <p>Brightness: {result.brightness}</p>
-          <h3>
-            Status:{" "}
-            {result.freshness >= 80
-              ? "🟢 Very Fresh"
-              : result.freshness >= 60
-              ? "🟡 Okay"
-              : "🔴 Expiring Soon"}
-          </h3>
-        </div>
-      )}
+{result && (
+  <div style={{ marginTop: "2rem" }}>
+    <h2>Freshness Score: {result.freshness_score}/100</h2>
+    <p>Spots Detected: {result.spots_detected}</p>
+    <p>Brightness: {result.brightness}</p>
+    <h3>
+      Status:{" "}
+      {result.status === "Fresh" ? "🟢 Fresh" :
+       result.status === "Slightly Aging" ? "🟡 Slightly Aging" :
+       "🔴 Expiring Soon"}
+    </h3>
+  </div>
+)}
+
     </div>
   );
 }

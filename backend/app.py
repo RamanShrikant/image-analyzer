@@ -5,15 +5,25 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import tflite_runtime.interpreter as tflite
 from PIL import Image
+import os
 
 app = Flask(__name__)
-CORS(app)
+
+# Debug info for Railway environment
+print("📁 Current working directory:", os.getcwd())
+print("📂 Files in directory:", os.listdir())
+
+CORS(app, resources={r"/*": {"origins": "https://image-analyzer-xi.vercel.app"}})
 
 # --- Load the MobileNetV2 TFLite model ---
-interpreter = tflite.Interpreter(model_path="mobilenet_v2.tflite")
-interpreter.allocate_tensors()
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+try:
+    interpreter = tflite.Interpreter(model_path="mobilenet_v2.tflite")
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    print("✅ Model loaded successfully")
+except Exception as e:
+    print("❌ Error loading model:", e)
 
 
 @app.route("/", methods=["GET"])
@@ -41,8 +51,13 @@ def analyze_freshness():
     preds = interpreter.get_tensor(output_details[0]['index'])[0]
     top_idx = np.argsort(preds)[::-1][:3]
 
-    # load ImageNet labels (download once locally)
-    labels = open("labels.txt").read().splitlines()
+    # --- Labels file handling ---
+    try:
+        labels = open("labels.txt").read().splitlines()
+    except Exception as e:
+        print("❌ Error reading labels.txt:", e)
+        return jsonify({"error": "labels file missing", "details": str(e)}), 500
+
     top_labels = [labels[i].lower() for i in top_idx]
 
     FOOD_KEYWORDS = [

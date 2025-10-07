@@ -13,10 +13,14 @@ function App() {
 
     setLoading(true);
     try {
-      const response = await fetch("http://127.0.0.1:5000/analyze", {   // 🔴 replace with your Flask backend URL
+      const response = await fetch("https://image-analyzer-kr0m.onrender.com/analyze", {  // ✅ updated to Render backend
         method: "POST",
         body: formData,
       });
+
+      if (!response.ok) {
+        throw new Error("Failed to analyze image");
+      }
 
       const data = await response.json();
       setResult(data);
@@ -37,15 +41,23 @@ function App() {
         accept="image/*"
         onChange={(e) => setFile(e.target.files[0])}
       />
-      <button onClick={handleUpload}>Analyze</button>
-
-      {loading && <p>Analyzing...</p>}
+      <button onClick={handleUpload} disabled={loading}>
+        {loading ? "Analyzing..." : "Analyze"}
+      </button>
 
       {result && (
-        <div>
+        <div style={{ marginTop: "2rem" }}>
           <h2>Freshness Score: {result.freshness}/100</h2>
           <p>Spots Detected: {result.spots}</p>
           <p>Brightness: {result.brightness}</p>
+          <h3>
+            Status:{" "}
+            {result.freshness >= 80
+              ? "🟢 Very Fresh"
+              : result.freshness >= 60
+              ? "🟡 Okay"
+              : "🔴 Expiring Soon"}
+          </h3>
         </div>
       )}
     </div>

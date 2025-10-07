@@ -87,23 +87,30 @@ def analyze_freshness():
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # 🔹 Adaptive threshold for spot detection
+    # 🔹 Adaptive threshold for dark spots
     thresh = cv2.adaptiveThreshold(
         gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2
     )
     spots = cv2.countNonZero(thresh)
     spot_ratio = spots / (img.shape[0] * img.shape[1])
 
-    # 🔹 New weight ratios (spots matter more)
+    # 🔹 Detect green-gray mold tones (typical spoilage)
+    mold_mask = cv2.inRange(hsv, (30, 0, 0), (90, 120, 210))
+    mold_pixels = cv2.countNonZero(mold_mask)
+    mold_ratio = mold_pixels / (img.shape[0] * img.shape[1])
+
+    # 🔹 Updated freshness formula (mold and spots matter most)
     freshness_score = int(
-        (0.3 * (brightness / 255) +
-         0.2 * (saturation / 255) +
-         0.5 * (1 - spot_ratio)) * 100
+        (0.25 * (brightness / 255) +
+         0.15 * (saturation / 255) +
+         0.45 * (1 - spot_ratio) +
+         0.15 * (1 - mold_ratio)) * 100
     )
 
+    # 🔹 Adjusted thresholds (40 = spoiled cutoff)
     if freshness_score > 75:
         status = "Fresh"
-    elif freshness_score > 50:
+    elif freshness_score > 40:
         status = "Slightly Aging"
     else:
         status = "Spoiled"
@@ -114,9 +121,9 @@ def analyze_freshness():
         "status": status,
         "spots_detected": int(spots),
         "brightness": round(brightness, 2),
-        "saturation": round(saturation, 2)
+        "saturation": round(saturation, 2),
+        "mold_pixels": int(mold_pixels)
     })
-
 
 
 if __name__ == "__main__":

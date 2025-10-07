@@ -13,28 +13,31 @@ function App() {
 
     setLoading(true);
     try {
-      const response = await fetch("https://image-analyzer-production-f217.up.railway.app/analyze-freshness", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to analyze image");
-      }
+      const response = await fetch(
+        "https://image-analyzer-production-f217.up.railway.app/analyze-freshness",
+        { method: "POST", body: formData }
+      );
 
       const data = await response.json();
       setResult(data);
     } catch (error) {
-      console.error(error);
       alert("Error analyzing image");
+      console.error(error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
+  };
+
+  const getColor = (label) => {
+    if (label === "Fresh") return "🟢";
+    if (label === "Slightly Aging") return "🟡";
+    return "🔴";
   };
 
   return (
     <div style={{ textAlign: "center", marginTop: "2rem" }}>
       <h1>Image Analyzer</h1>
-      <p>Upload an image to get started.</p>
+      <p>Upload an image to check freshness.</p>
 
       <input
         type="file"
@@ -45,20 +48,33 @@ function App() {
         {loading ? "Analyzing..." : "Analyze"}
       </button>
 
-{result && (
-  <div style={{ marginTop: "2rem" }}>
-    <h2>Freshness Score: {result.freshness_score}/100</h2>
-    <p>Spots Detected: {result.spots_detected}</p>
-    <p>Brightness: {result.brightness}</p>
-    <h3>
-      Status:{" "}
-      {result.status === "Fresh" ? "🟢 Fresh" :
-       result.status === "Slightly Aging" ? "🟡 Slightly Aging" :
-       "🔴 Expiring Soon"}
-    </h3>
-  </div>
-)}
-
+      {result && (
+        <div style={{ marginTop: "2rem" }}>
+          <h2>Status: {getColor(result.status)} {result.status}</h2>
+          <p>Confidence: {result.confidence?.toFixed(2)}%</p>
+          <h3>Model Predictions:</h3>
+          <div style={{ width: "300px", margin: "auto", textAlign: "left" }}>
+            {Object.entries(result.predictions).map(([label, value]) => (
+              <div key={label} style={{ margin: "0.5rem 0" }}>
+                <strong>{label}</strong>
+                <div
+                  style={{
+                    height: "10px",
+                    width: `${value * 3}px`,
+                    background:
+                      label === "Fresh"
+                        ? "#00cc66"
+                        : label === "Slightly Aging"
+                        ? "#ffcc00"
+                        : "#ff4444",
+                  }}
+                ></div>
+                <span>{value.toFixed(2)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

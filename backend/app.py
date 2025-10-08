@@ -9,10 +9,24 @@ import os
 app = Flask(__name__)
 
 # --- Enable CORS for your frontend ---
-CORS(app, resources={r"/*": {"origins": "https://image-analyzer-xi.vercel.app"}})
+from flask_cors import CORS
+
+CORS(app, resources={r"/*": {
+    "origins": [
+        "https://image-analyzer-xi.vercel.app",
+        "https://image-analyzer-b0ii40yu0-ramans-projects-207e5212.vercel.app",
+        "http://localhost:3000"  # for local testing
+    ],
+    "methods": ["GET", "POST", "OPTIONS"],
+    "allow_headers": ["Content-Type"]
+}})
+
 
 # --- Load your trained TFLite model ---
 MODEL_PATH = "freshness_model.tflite"
+print("🧾 Using model file at:", os.path.abspath(MODEL_PATH))
+print("📦 Model file size:", os.path.getsize(MODEL_PATH), "bytes")
+
 
 try:
     interpreter = tflite.Interpreter(model_path=MODEL_PATH)

@@ -47,6 +47,9 @@ def analyze_freshness():
         interpreter.set_tensor(input_details[0]['index'], x)
         interpreter.invoke()
         preds = interpreter.get_tensor(output_details[0]['index'])[0]
+        bias = np.array([1.0, 1.0, 1.15])  # Fresh, Aging, Spoiled
+        preds = preds * bias
+        preds = preds / np.sum(preds)
 
         # --- 4️⃣ Interpret predictions ---
         classes = ["Fresh", "Slightly Aging", "Spoiled"]

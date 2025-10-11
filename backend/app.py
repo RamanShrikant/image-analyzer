@@ -11,16 +11,18 @@ import tempfile
 # ✅ initialize app before routes
 app = Flask(__name__)
 
-# --- Enable CORS for your frontend ---
 CORS(app, resources={r"/*": {
     "origins": [
+        "https://image-analyzer-gafs2hk4q-ramans-projects-207e5212.vercel.app",
         "https://image-analyzer-xi.vercel.app",
         "https://image-analyzer-b0ii40yu0-ramans-projects-207e5212.vercel.app",
-        "http://localhost:3000"
+        "http://localhost:3000",
+        "http://localhost:5173"
     ],
     "methods": ["GET", "POST", "OPTIONS"],
     "allow_headers": ["Content-Type"]
 }})
+
 
 # --- C++ Integration Route ---
 @app.route("/count-spots", methods=["POST"])
